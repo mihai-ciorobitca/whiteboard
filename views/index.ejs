@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <title>Whiteboard Drawing App</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            cursor: none;
+            width: 100%;
+            height: 85vh;
+            background-color: white;
+        }
+
+        .cursor-circle-red {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            background-color: red;
+        }
+
+        .cursor-circle-gray {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            background-color: gray;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="container-fluid mt-4">
+        <div class="col">
+            <canvas id="whiteboard"></canvas>
+        </div>
+        <div class="col" id="buttonsContainer">
+            <button id="clearButton" class="btn btn-primary">Clear</button>
+            <button id="eraserButton" class="btn btn-secondary">Eraser</button>
+            <button id="pencilButton" class="btn btn-success">Pencil</button>
+        </div>
+        <div class="cursor-circle-red" id="cursorCircle"></div>
+    </main>
+
+    <script>
+        $(document).ready(() => {
+            const socket = io();
+
+            socket.on("connect", () => {
+                console.log("Connected")
+            })
+
+            const canvas = $('#whiteboard')[0];
+            const context = canvas.getContext('2d');
+            const clearButton = $('#clearButton');
+            const eraserButton = $('#eraserButton');
+            const pencilButton = $('#pencilButton');
+            const cursorCircle = $('#cursorCircle');
+
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+
+            let drawing = false;
+            let isEraser = false;
+            let lastX = 0;
+            let lastY = 0;
+
+            $(canvas).on('mousedown', function (e) {
+                drawing = true;
+                lastX = e.offsetX;
+                lastY = e.offsetY;
+            });
+
+            $(canvas).on('mouseup', function () {
+                drawing = false;
+            });
+
+            $(canvas).on('mousemove', function (e) {
+                cursorCircle.css({
+                    left: `${e.clientX}px`,
+                    top: `${e.clientY}px`
+                });
+
+                if (!drawing) return;
+
+                const data = {
+                    x0: lastX,
+                    y0: lastY,
+                    x1: e.offsetX,
+                    y1: e.offsetY,
+                    isEraser: isEraser
+                };
+
+                socket.emit('draw_event', data);
+                drawOnCanvas(data, false);
+                lastX = e.offsetX;
+                lastY = e.offsetY;
+            });
+
+            $(eraserButton).on("click", () => {
+                isEraser = true;
+                cursorCircle.removeClass('cursor-circle-red').addClass('cursor-circle-gray');
+            });
+
+            $(pencilButton).on("click", () => {
+                isEraser = false;
+                cursorCircle.removeClass('cursor-circle-gray').addClass('cursor-circle-red');
+            });
+
+            function drawOnCanvas(data, shouldBroadcast = true) {
+                if (data.isEraser) {
+                    context.save();
+                    context.globalCompositeOperation = 'destination-out';
+                    context.clearRect(data.x1 - 10, data.y1 - 10, 20, 20);
+                    context.fill();
+                    context.restore();
+                } else {
+                    context.beginPath();
+                    context.moveTo(data.x0, data.y0);
+                    context.lineTo(data.x1, data.y1);
+                    context.strokeStyle = 'black';
+                    context.lineWidth = 2;
+                    context.stroke();
+                }
+            }
+
+            socket.on('broadcast_draw', function (data) {
+                drawOnCanvas(data, false);
+            });
+
+            clearButton.on('click', function () {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                socket.emit('clear_canvas');
+            });
+
+            socket.on('broadcast_clear', function () {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            });
+        });
+    </script>
+</body>
+
+</html>
